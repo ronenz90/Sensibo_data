@@ -61,58 +61,59 @@ def get_measurements(device_id, days_back=2):
     start = datetime.now(timezone.utc) - timedelta(days=days_back)
     all_items = []
 
-    # First try: historicalMeasurements (works on some accounts)
+    # Try historicalMeasurements — Sensibo returns data per-minute for recent period
     try:
         resp = requests.get(
             f"{BASE_URL}/pods/{device_id}/historicalMeasurements",
-            params={"apiKey": API_KEY, "fields": "temperature,humidity,time", "limit": 50}
+            params={"apiKey": API_KEY, "fields": "temperature,humidity,time",
+                    "limit": 100, "offset": 0}
         )
         resp.raise_for_status()
         result = resp.json().get("result", {})
+        # result can be a list, or a dict with "measurements" key
         if isinstance(result, list):
             items = result
-        else:
+        elif isinstance(result, dict):
             items = result.get("measurements", [])
+            # Sometimes result IS the measurements dict (not wrapped)
+            if not items and result.get("temperature") is not None:
+                items = [result]
+        else:
+            items = []
         print(f"  historicalMeasurements returned {len(items)} items")
-        if items:
-            for item in items:
-                ts_str = _extract_ts(item)
-                if not ts_str:
-                    continue
-                try:
-                    ts = _parse_ts(ts_str)
-                except Exception:
-                    continue
-                if ts >= start:
-                    all_items.append({
-                        "ts":          ts_str,
-                        "temperature": item.get("temperature"),
-                        "humidity":    item.get("humidity"),
-                    })
-            if all_items:
-                return all_items
+        for item in items:
+            ts_str = _extract_ts(item)
+            if not ts_str:
+                continue
+            try:
+                ts = _parse_ts(ts_str)
+            except Exception:
+                continue
+            if ts >= start:
+                all_items.append({
+                    "ts":          ts_str,
+                    "temperature": item.get("temperature"),
+                    "humidity":    item.get("humidity"),
+                })
+        if all_items:
+            print(f"  Got {len(all_items)} measurements from history.")
+            return all_items
     except Exception as e:
         print(f"  historicalMeasurements failed: {e}")
 
-    # Fallback: current measurements from pod object
-    print("  Falling back to current measurements from pod...")
+    # Fallback: current measurement from pod object (saves 1 point per run)
+    print("  Falling back to current measurement from pod...")
     resp = requests.get(
         f"{BASE_URL}/users/me/pods",
         params={"apiKey": API_KEY, "fields": "id,measurements"}
     )
     resp.raise_for_status()
-    pods = resp.json().get("result", [])
-    now_str = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-    for pod in pods:
+    for pod in resp.json().get("result", []):
         if pod.get("id") == device_id:
-            m = pod.get("measurements", {})
-            if m and m.get("temperature") is not None:
-                print(f"  Current measurement: {m}")
-                all_items.append({
-                    "ts":          now_str,
-                    "temperature": m.get("temperature"),
-                    "humidity":    m.get("humidity"),
-                })
+            entry = _measurement_from_pod(pod)
+            if entry:
+                print(f"  Current measurement: temp={entry['temperature']} hum={entry['humidity']}")
+                all_items.append(entry)
             break
     return all_items
 
@@ -230,8 +231,20 @@ def _extract_ts(item):
         return t.get("time") or t.get("utc") or t.get("iso") or ""
     if isinstance(t, str):
         return t
-    # fallback fields
     return item.get("ts") or item.get("timestamp") or item.get("createdAt") or ""
+
+def _measurement_from_pod(pod):
+    """Extract latest measurement dict from a pod object."""
+    m = pod.get("measurements")
+    if not m:
+        return None
+    # measurements is a dict with temperature, humidity, time{time, secondsAgo}
+    temp = m.get("temperature")
+    hum  = m.get("humidity")
+    ts   = _extract_ts(m)
+    if temp is None or not ts:
+        return None
+    return {"ts": ts, "temperature": temp, "humidity": hum}
 
 def load_json(path):
     if path.exists():
