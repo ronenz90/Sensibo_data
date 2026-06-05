@@ -1,0 +1,958 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>מזג אוויר ביתי · Sensibo</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;600;800&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet" />
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/date-fns/3.6.0/cdn.min.js"></script>
+
+<style>
+  :root {
+    --bg:       #0b0f1a;
+    --surface:  #111827;
+    --card:     #161d2e;
+    --border:   #1f2d45;
+    --accent-t: #38bdf8;   /* temperature – sky blue */
+    --accent-h: #34d399;   /* humidity – emerald */
+    --text:     #e2e8f0;
+    --muted:    #64748b;
+    --glow-t:   rgba(56,189,248,.18);
+    --glow-h:   rgba(52,211,153,.18);
+    --accent-e: #fbbf24;   /* energy – amber */
+    --glow-e:   rgba(251,191,36,.18);
+    --radius:   14px;
+    --mono:     'Space Mono', monospace;
+    --sans:     'Heebo', sans-serif;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    min-height: 100vh;
+    padding: 0 0 60px;
+    overflow-x: hidden;
+  }
+
+  /* ── HEADER ── */
+  header {
+    background: linear-gradient(160deg, #0d1525 0%, #0b0f1a 100%);
+    border-bottom: 1px solid var(--border);
+    padding: 28px 40px 24px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    flex-wrap: wrap;
+  }
+  .logo {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+  }
+  .logo-icon {
+    width: 42px; height: 42px;
+    border-radius: 10px;
+    background: linear-gradient(135deg, var(--accent-t), var(--accent-h));
+    display: grid; place-items: center;
+    font-size: 22px;
+    box-shadow: 0 0 20px var(--glow-t);
+  }
+  h1 {
+    font-size: 1.4rem;
+    font-weight: 800;
+    letter-spacing: -.5px;
+    line-height: 1.2;
+  }
+  h1 span { color: var(--accent-t); }
+  .last-update {
+    font-family: var(--mono);
+    font-size: .72rem;
+    color: var(--muted);
+    margin-top: 2px;
+  }
+
+  /* ── LAYOUT ── */
+  main { max-width: 1200px; margin: 0 auto; padding: 36px 24px 0; }
+
+  /* ── STAT CARDS ── */
+  .stats-row {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 14px;
+    margin-bottom: 32px;
+  }
+  .stat {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 20px 22px;
+    position: relative;
+    overflow: hidden;
+    transition: transform .2s;
+  }
+  .stat:hover { transform: translateY(-2px); }
+  .stat::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    opacity: 0;
+    transition: opacity .3s;
+  }
+  .stat.temp::before { background: var(--glow-t); }
+  .stat.hum::before  { background: var(--glow-h); }
+  .stat:hover::before { opacity: 1; }
+  .stat-label {
+    font-size: .72rem;
+    text-transform: uppercase;
+    letter-spacing: 1.2px;
+    color: var(--muted);
+    margin-bottom: 8px;
+    font-weight: 600;
+  }
+  .stat-value {
+    font-family: var(--mono);
+    font-size: 2rem;
+    font-weight: 700;
+    line-height: 1;
+  }
+  .stat.temp .stat-value { color: var(--accent-t); }
+  .stat.hum  .stat-value { color: var(--accent-h); }
+  .stat.nrg  .stat-value { color: var(--accent-e); }
+  .stat.nrg::before      { background: var(--glow-e); }
+  .stat-sub {
+    font-size: .74rem;
+    color: var(--muted);
+    margin-top: 6px;
+  }
+
+  /* ── CONTROLS ── */
+  .controls {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    align-items: center;
+    margin-bottom: 28px;
+  }
+  .seg-group {
+    display: flex;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+  }
+  .seg-group button {
+    background: none;
+    border: none;
+    color: var(--muted);
+    font-family: var(--sans);
+    font-size: .82rem;
+    font-weight: 600;
+    padding: 8px 16px;
+    cursor: pointer;
+    transition: background .15s, color .15s;
+  }
+  .seg-group button.active {
+    background: var(--border);
+    color: var(--text);
+  }
+  .seg-group button:hover:not(.active) {
+    background: rgba(255,255,255,.04);
+    color: var(--text);
+  }
+  .device-select {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    color: var(--text);
+    font-family: var(--sans);
+    font-size: .82rem;
+    padding: 8px 14px;
+    border-radius: 8px;
+    cursor: pointer;
+    outline: none;
+  }
+  .device-select:focus { border-color: var(--accent-t); }
+  .ctrl-label {
+    font-size: .8rem;
+    color: var(--muted);
+    font-weight: 600;
+  }
+
+  /* ── CHART CARD ── */
+  .chart-card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 28px 28px 22px;
+    margin-bottom: 24px;
+    position: relative;
+  }
+  .chart-title {
+    font-size: .8rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    color: var(--muted);
+    margin-bottom: 20px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .chart-title .dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+  }
+  .dot-t { background: var(--accent-t); box-shadow: 0 0 8px var(--accent-t); }
+  .dot-h { background: var(--accent-h); box-shadow: 0 0 8px var(--accent-h); }
+  .dot-e { background: var(--accent-e); box-shadow: 0 0 8px var(--accent-e); }
+  .chart-wrap { position: relative; height: 280px; }
+
+  /* ── WEEK HEATMAP ── */
+  .heatmap-grid {
+    display: grid;
+    grid-template-columns: 60px repeat(24, 1fr);
+    gap: 3px;
+    font-size: .65rem;
+    font-family: var(--mono);
+    color: var(--muted);
+  }
+  .hm-label { display: flex; align-items: center; justify-content: flex-end; padding-left: 8px; height: 28px; }
+  .hm-hour-label { display: flex; align-items: flex-end; justify-content: center; height: 22px; padding-bottom: 2px; }
+  .hm-cell {
+    height: 28px;
+    border-radius: 4px;
+    background: var(--surface);
+    transition: transform .15s;
+    cursor: default;
+    position: relative;
+  }
+  .hm-cell:hover { transform: scale(1.3); z-index: 10; }
+
+  /* ── TOOLTIP ── */
+  .tooltip {
+    position: fixed;
+    background: #1e293b;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 14px;
+    font-size: .78rem;
+    pointer-events: none;
+    z-index: 1000;
+    display: none;
+    box-shadow: 0 8px 32px rgba(0,0,0,.4);
+    line-height: 1.7;
+  }
+  .tooltip.show { display: block; }
+  .tt-t { color: var(--accent-t); font-family: var(--mono); font-weight: 700; }
+  .tt-h { color: var(--accent-h); font-family: var(--mono); font-weight: 700; }
+
+  /* ── LOADING ── */
+  .loading {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 320px;
+    gap: 16px;
+    color: var(--muted);
+    font-size: .9rem;
+  }
+  .spinner {
+    width: 36px; height: 36px;
+    border: 3px solid var(--border);
+    border-top-color: var(--accent-t);
+    border-radius: 50%;
+    animation: spin .8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ── EMPTY ── */
+  .empty {
+    text-align: center;
+    padding: 60px 20px;
+    color: var(--muted);
+    font-size: .9rem;
+    line-height: 1.8;
+  }
+  .empty h3 { font-size: 1.1rem; color: var(--text); margin-bottom: 8px; }
+
+  /* ── RESPONSIVE ── */
+  @media (max-width: 640px) {
+    header { padding: 20px; }
+    .heatmap-grid { grid-template-columns: 44px repeat(12, 1fr); }
+    .chart-wrap { height: 220px; }
+  }
+
+  /* ── PASSWORD SCREEN ── */
+  #lockScreen {
+    position: fixed; inset: 0;
+    background: var(--bg);
+    display: flex; align-items: center; justify-content: center;
+    z-index: 9999;
+    opacity: 1; transition: opacity .4s;
+  }
+  #lockScreen.fade-out { opacity: 0; pointer-events: none; }
+  .lock-card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    padding: 48px 44px;
+    width: min(380px, 90vw);
+    text-align: center;
+    box-shadow: 0 32px 80px rgba(0,0,0,.5);
+    animation: lockIn .45s cubic-bezier(.16,1,.3,1);
+  }
+  @keyframes lockIn {
+    from { transform: translateY(24px) scale(.97); opacity: 0; }
+    to   { transform: none; opacity: 1; }
+  }
+  .lock-icon {
+    font-size: 2.6rem;
+    margin-bottom: 20px;
+    display: block;
+    filter: drop-shadow(0 0 14px rgba(56,189,248,.5));
+  }
+  .lock-card h2 {
+    font-size: 1.3rem; font-weight: 800; margin-bottom: 6px;
+  }
+  .lock-card p {
+    font-size: .85rem; color: var(--muted); margin-bottom: 28px;
+  }
+  .lock-input-wrap {
+    position: relative; margin-bottom: 14px;
+  }
+  .lock-input-wrap input {
+    width: 100%;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 1.1rem;
+    letter-spacing: 3px;
+    padding: 14px 48px 14px 18px;
+    outline: none;
+    transition: border-color .2s;
+    text-align: center;
+  }
+  .lock-input-wrap input:focus { border-color: var(--accent-t); }
+  .lock-input-wrap input.error { border-color: #f87171; animation: shake .3s; }
+  @keyframes shake {
+    0%,100% { transform: translateX(0); }
+    25%      { transform: translateX(-6px); }
+    75%      { transform: translateX(6px); }
+  }
+  .toggle-pw {
+    position: absolute; left: 14px; top: 50%; transform: translateY(-50%);
+    background: none; border: none; cursor: pointer;
+    color: var(--muted); font-size: 1rem; padding: 4px;
+    transition: color .2s;
+  }
+  .toggle-pw:hover { color: var(--text); }
+  .lock-btn {
+    width: 100%;
+    background: linear-gradient(135deg, var(--accent-t), var(--accent-h));
+    border: none; border-radius: 10px;
+    color: #0b0f1a; font-family: var(--sans);
+    font-size: .95rem; font-weight: 800;
+    padding: 14px;
+    cursor: pointer;
+    transition: opacity .2s, transform .1s;
+  }
+  .lock-btn:hover  { opacity: .9; }
+  .lock-btn:active { transform: scale(.98); }
+  .lock-error {
+    color: #f87171; font-size: .8rem;
+    margin-top: 10px; min-height: 20px;
+    transition: opacity .2s;
+  }
+</style>
+</head>
+<body>
+
+<!-- ── LOCK SCREEN ── -->
+<div id="lockScreen">
+  <div class="lock-card">
+    <span class="lock-icon">🔒</span>
+    <h2>מזג אוויר ביתי</h2>
+    <p>הכנס סיסמא כדי להמשיך</p>
+    <div class="lock-input-wrap">
+      <input type="password" id="pwInput" placeholder="••••••••"
+             autocomplete="current-password" autofocus />
+      <button class="toggle-pw" id="togglePw" tabindex="-1" title="הצג/הסתר סיסמא">👁</button>
+    </div>
+    <button class="lock-btn" id="unlockBtn">כניסה</button>
+    <div class="lock-error" id="lockError"></div>
+  </div>
+</div>
+
+<header>
+  <div class="logo">
+    <div class="logo-icon">🌡️</div>
+    <div>
+      <h1>מזג אוויר <span>ביתי</span></h1>
+      <div class="last-update" id="lastUpdate">טוען...</div>
+    </div>
+  </div>
+  <select class="device-select" id="deviceSelect"></select>
+</header>
+
+<main>
+  <!-- Stats -->
+  <div class="stats-row" id="statsRow">
+    <div class="stat temp"><div class="stat-label">טמפרטורה עכשיו</div><div class="stat-value" id="statTempNow">--</div><div class="stat-sub">°C</div></div>
+    <div class="stat hum"> <div class="stat-label">לחות עכשיו</div>    <div class="stat-value" id="statHumNow">--</div> <div class="stat-sub">%</div></div>
+    <div class="stat temp"><div class="stat-label">ממוצע טמפ׳ — 24ש׳</div><div class="stat-value" id="statTempAvg">--</div><div class="stat-sub">°C</div></div>
+    <div class="stat hum"> <div class="stat-label">ממוצע לחות — 24ש׳</div><div class="stat-value" id="statHumAvg">--</div> <div class="stat-sub">%</div></div>
+    <div class="stat temp"><div class="stat-label">מקסימום טמפ׳</div>    <div class="stat-value" id="statTempMax">--</div><div class="stat-sub">°C</div></div>
+    <div class="stat hum"> <div class="stat-label">מינימום טמפ׳</div>    <div class="stat-value" id="statTempMin">--</div> <div class="stat-sub">°C</div></div>
+    <div class="stat nrg"><div class="stat-label">צריכה היום</div><div class="stat-value" id="statKwhToday">--</div><div class="stat-sub">kWh</div></div>
+    <div class="stat nrg"><div class="stat-label">עלות היום</div><div class="stat-value" id="statCostToday">--</div><div class="stat-sub">₪</div></div>
+    <div class="stat nrg"><div class="stat-label">צריכה השבוע</div><div class="stat-value" id="statKwhWeek">--</div><div class="stat-sub">kWh</div></div>
+    <div class="stat nrg"><div class="stat-label">עלות השבוע</div><div class="stat-value" id="statCostWeek">--</div><div class="stat-sub">₪</div></div>
+  </div>
+
+  <!-- Controls -->
+  <div class="controls">
+    <span class="ctrl-label">תצוגה:</span>
+    <div class="seg-group" id="rangeGroup">
+      <button data-range="1"  class="active">24ש׳</button>
+      <button data-range="7"  >שבוע</button>
+      <button data-range="30" >חודש</button>
+      <button data-range="90" >3 חודשים</button>
+    </div>
+    <div class="seg-group" id="metricGroup">
+      <button data-metric="both" class="active">הכל</button>
+      <button data-metric="temp">טמפ׳</button>
+      <button data-metric="hum">לחות</button>
+    </div>
+  </div>
+
+  <!-- Main chart -->
+  <div class="chart-card">
+    <div class="chart-title">
+      <span class="dot dot-t"></span> טמפרטורה
+      <span class="dot dot-h" style="margin-right:8px"></span> לחות
+    </div>
+    <div class="chart-wrap"><canvas id="mainChart"></canvas></div>
+  </div>
+
+  <!-- Heatmap -->
+  <div class="chart-card">
+    <div class="chart-title"><span class="dot dot-t"></span> מפת חום — טמפרטורה לפי שעה ויום</div>
+    <div id="heatmapContainer"></div>
+  </div>
+  <!-- Energy chart -->
+  <div class="chart-card">
+    <div class="chart-title"><span class="dot dot-e"></span> צריכת חשמל יומית — kWh ועלות ₪</div>
+    <div class="chart-wrap"><canvas id="energyChart"></canvas></div>
+  </div>
+</main>
+
+<div class="tooltip" id="tooltip"></div>
+
+<script>
+// ─────────────────────────────────────────────
+// CONFIG
+// ─────────────────────────────────────────────
+const DATA_URL = "data/measurements.json";
+
+// ─────────────────────────────────────────────
+// STATE
+// ─────────────────────────────────────────────
+let allData      = {};
+let energyData   = {};
+let deviceId     = null;
+let devices      = [];
+let rangeDays    = 1;
+let metricMode   = "both";
+let mainChartInst  = null;
+let energyChartInst = null;
+
+// ─────────────────────────────────────────────
+// FETCH
+// ─────────────────────────────────────────────
+async function loadData() {
+  document.getElementById("heatmapContainer").innerHTML = '<div class="loading"><div class="spinner"></div><span>טוען נתונים...</span></div>';
+  try {
+    const res = await fetch(DATA_URL + "?t=" + Date.now());
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    allData = await res.json();
+  } catch(e) {
+    allData = {};
+    console.error("Failed to load data:", e);
+  }
+  try {
+    const res2 = await fetch("data/energy.json?t=" + Date.now());
+    if (res2.ok) energyData = await res2.json();
+  } catch(e) { energyData = {}; }
+
+  // Parse devices
+  devices = Object.keys(allData).filter(k => !k.includes("__name"));
+  const sel = document.getElementById("deviceSelect");
+  sel.innerHTML = "";
+  if (devices.length === 0) {
+    renderEmpty();
+    return;
+  }
+  devices.forEach(id => {
+    const name = allData[id + "__name"] || id;
+    const opt = document.createElement("option");
+    opt.value = id; opt.textContent = name;
+    sel.appendChild(opt);
+  });
+  deviceId = devices[0];
+
+  // Last update
+  const rows = allData[deviceId] || [];
+  if (rows.length) {
+    const last = new Date(rows[rows.length-1].ts);
+    document.getElementById("lastUpdate").textContent = "עדכון אחרון: " + last.toLocaleString("he-IL");
+  }
+
+  render();
+}
+
+// ─────────────────────────────────────────────
+// HELPERS
+// ─────────────────────────────────────────────
+function getFilteredRows() {
+  const rows = allData[deviceId] || [];
+  const cutoff = Date.now() - rangeDays * 86400_000;
+  return rows.filter(r => new Date(r.ts).getTime() >= cutoff);
+}
+
+function avg(arr) { return arr.length ? arr.reduce((a,b)=>a+b,0)/arr.length : null; }
+
+// ─────────────────────────────────────────────
+// STATS
+// ─────────────────────────────────────────────
+function renderStats(rows) {
+  const last = rows[rows.length-1] || {};
+  const temps = rows.map(r=>r.temperature).filter(v=>v!=null);
+  const hums  = rows.map(r=>r.humidity).filter(v=>v!=null);
+  const yesterday = rows.filter(r => new Date(r.ts).getTime() >= Date.now()-86400_000);
+  const ytemps = yesterday.map(r=>r.temperature).filter(v=>v!=null);
+  const yhums  = yesterday.map(r=>r.humidity).filter(v=>v!=null);
+
+  const set = (id, val, dp=1) => {
+    const el = document.getElementById(id);
+    el.textContent = val!=null ? (+val).toFixed(dp) : "--";
+  };
+  set("statTempNow", last.temperature);
+  set("statHumNow",  last.humidity, 0);
+  set("statTempAvg", avg(ytemps));
+  set("statHumAvg",  avg(yhums), 0);
+  set("statTempMax", temps.length ? Math.max(...temps) : null);
+  set("statTempMin", temps.length ? Math.min(...temps) : null);
+
+  // Energy stats
+  if (deviceId && energyData[deviceId]) {
+    const ed = energyData[deviceId];
+    const todayStr = new Date().toLocaleDateString("sv-SE"); // YYYY-MM-DD
+    const todayE = ed[todayStr] || {};
+    document.getElementById("statKwhToday").textContent  = todayE.kwh        != null ? todayE.kwh.toFixed(2)        : "--";
+    document.getElementById("statCostToday").textContent = todayE.cost_ils   != null ? todayE.cost_ils.toFixed(2)   : "--";
+    // Week sum
+    let weekKwh = 0, weekCost = 0;
+    for (let d = 0; d < 7; d++) {
+      const ds = new Date(Date.now() - d*86400000).toLocaleDateString("sv-SE");
+      if (ed[ds]) { weekKwh += ed[ds].kwh || 0; weekCost += ed[ds].cost_ils || 0; }
+    }
+    document.getElementById("statKwhWeek").textContent  = weekKwh  ? weekKwh.toFixed(2)  : "--";
+    document.getElementById("statCostWeek").textContent = weekCost ? weekCost.toFixed(2) : "--";
+  }
+}
+
+// ─────────────────────────────────────────────
+// MAIN CHART
+// ─────────────────────────────────────────────
+function renderMainChart(rows) {
+  const labels = rows.map(r => {
+    const d = new Date(r.ts);
+    return rangeDays <= 2
+      ? d.toLocaleTimeString("he-IL", {hour:"2-digit", minute:"2-digit"})
+      : d.toLocaleDateString("he-IL", {month:"short", day:"numeric", hour:"2-digit", minute:"2-digit"});
+  });
+
+  // Downsample if too many points
+  const MAX_POINTS = 300;
+  let displayRows = rows;
+  if (rows.length > MAX_POINTS) {
+    const step = Math.ceil(rows.length / MAX_POINTS);
+    displayRows = rows.filter((_,i) => i % step === 0);
+  }
+  const dLabels = displayRows.map(r => {
+    const d = new Date(r.ts);
+    return rangeDays <= 2
+      ? d.toLocaleTimeString("he-IL", {hour:"2-digit", minute:"2-digit"})
+      : d.toLocaleDateString("he-IL", {month:"short", day:"numeric"});
+  });
+
+  const showTemp = metricMode === "both" || metricMode === "temp";
+  const showHum  = metricMode === "both" || metricMode === "hum";
+
+  const datasets = [];
+  if (showTemp) datasets.push({
+    label: "טמפרטורה (°C)",
+    data: displayRows.map(r => r.temperature),
+    borderColor: "#38bdf8",
+    backgroundColor: "rgba(56,189,248,.08)",
+    borderWidth: 2,
+    pointRadius: displayRows.length > 100 ? 0 : 3,
+    tension: 0.35,
+    fill: true,
+    yAxisID: "yT",
+  });
+  if (showHum) datasets.push({
+    label: "לחות (%)",
+    data: displayRows.map(r => r.humidity),
+    borderColor: "#34d399",
+    backgroundColor: "rgba(52,211,153,.06)",
+    borderWidth: 2,
+    pointRadius: displayRows.length > 100 ? 0 : 3,
+    tension: 0.35,
+    fill: true,
+    yAxisID: "yH",
+  });
+
+  if (mainChartInst) mainChartInst.destroy();
+  const ctx = document.getElementById("mainChart").getContext("2d");
+  mainChartInst = new Chart(ctx, {
+    type: "line",
+    data: { labels: dLabels, datasets },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      interaction: { mode: "index", intersect: false },
+      plugins: {
+        legend: { labels: { color: "#94a3b8", font: { family: "Heebo", size: 12 } } },
+        tooltip: {
+          backgroundColor: "#1e293b",
+          borderColor: "#1f2d45",
+          borderWidth: 1,
+          titleColor: "#e2e8f0",
+          bodyColor: "#94a3b8",
+          padding: 12,
+        }
+      },
+      scales: {
+        x: { ticks: { color: "#475569", maxTicksLimit: 10, font:{size:11} }, grid: { color: "#1f2d45" } },
+        yT: {
+          display: showTemp,
+          position: "right",
+          ticks: { color: "#38bdf8", font:{size:11} },
+          grid: { color: "#1f2d45" },
+          title: { display: true, text: "°C", color: "#38bdf8" }
+        },
+        yH: {
+          display: showHum,
+          position: "left",
+          ticks: { color: "#34d399", font:{size:11} },
+          grid: { display: false },
+          title: { display: true, text: "%", color: "#34d399" }
+        },
+      }
+    }
+  });
+}
+
+// ─────────────────────────────────────────────
+// HEATMAP
+// ─────────────────────────────────────────────
+function renderHeatmap(rows) {
+  // Build hour × day grid (last 7 days, 24 hours)
+  const days = [];
+  for (let d = 6; d >= 0; d--) {
+    const date = new Date();
+    date.setDate(date.getDate() - d);
+    days.push(date);
+  }
+
+  // bucket[day][hour] = [temps]
+  const bucket = days.map(() => Array.from({length:24}, ()=>[]));
+  const dayStrs = days.map(d => d.toISOString().slice(0,10));
+
+  rows.forEach(r => {
+    const d = new Date(r.ts);
+    const ds = d.toISOString().slice(0,10);
+    const di = dayStrs.indexOf(ds);
+    if (di >= 0 && r.temperature != null) {
+      bucket[di][d.getHours()].push(r.temperature);
+    }
+  });
+
+  // Compute avg per cell; find global min/max
+  const cellAvgs = bucket.map(day => day.map(h => h.length ? avg(h) : null));
+  const flat = cellAvgs.flat().filter(v=>v!=null);
+  const tMin = flat.length ? Math.min(...flat) : 18;
+  const tMax = flat.length ? Math.max(...flat) : 30;
+
+  function tempColor(t) {
+    if (t == null) return "var(--surface)";
+    const ratio = Math.max(0, Math.min(1, (t - tMin) / (tMax - tMin || 1)));
+    // cold = #0ea5e9 (sky), hot = #f97316 (orange)
+    const r = Math.round(14  + ratio * (249 - 14));
+    const g = Math.round(165 + ratio * (115 - 165));
+    const b = Math.round(233 + ratio * (22  - 233));
+    return `rgb(${r},${g},${b})`;
+  }
+
+  const DAY_LABELS = ["א׳","ב׳","ג׳","ד׳","ה׳","ו׳","ש׳"];
+
+  const container = document.getElementById("heatmapContainer");
+  const grid = document.createElement("div");
+  grid.className = "heatmap-grid";
+
+  // Header row (hours)
+  grid.appendChild(document.createElement("div")); // empty corner
+  for (let h = 0; h < 24; h++) {
+    const lbl = document.createElement("div");
+    lbl.className = "hm-hour-label";
+    lbl.textContent = h % 3 === 0 ? String(h).padStart(2,"0") : "";
+    grid.appendChild(lbl);
+  }
+
+  // Data rows
+  days.forEach((date, di) => {
+    const lbl = document.createElement("div");
+    lbl.className = "hm-label";
+    lbl.textContent = DAY_LABELS[date.getDay()];
+    grid.appendChild(lbl);
+
+    for (let h = 0; h < 24; h++) {
+      const cell = document.createElement("div");
+      cell.className = "hm-cell";
+      const val = cellAvgs[di][h];
+      cell.style.background = tempColor(val);
+      if (val != null) {
+        cell.addEventListener("mousemove", e => showTooltip(e, date, h, val));
+        cell.addEventListener("mouseleave", hideTooltip);
+      }
+      grid.appendChild(cell);
+    }
+  });
+
+  container.innerHTML = "";
+  container.appendChild(grid);
+}
+
+// ─────────────────────────────────────────────
+// TOOLTIP
+// ─────────────────────────────────────────────
+const tooltip = document.getElementById("tooltip");
+function showTooltip(e, date, hour, temp) {
+  const ds = date.toLocaleDateString("he-IL", {weekday:"short", day:"numeric", month:"short"});
+  tooltip.innerHTML = `<strong>${ds}</strong><br>שעה: ${String(hour).padStart(2,"0")}:00<br><span class="tt-t">🌡 ${temp.toFixed(1)}°C</span>`;
+  tooltip.classList.add("show");
+  tooltip.style.left = (e.clientX + 14) + "px";
+  tooltip.style.top  = (e.clientY - 10) + "px";
+}
+function hideTooltip() { tooltip.classList.remove("show"); }
+
+// ─────────────────────────────────────────────
+// EMPTY STATE
+// ─────────────────────────────────────────────
+function renderEmpty() {
+  document.getElementById("heatmapContainer").innerHTML = `
+    <div class="empty">
+      <h3>אין נתונים עדיין</h3>
+      הפעל את הסקריפט <code>fetch_data.py</code> לראשונה,<br>
+      או המתן לריצה הלילית הבאה של GitHub Actions.
+    </div>`;
+  document.getElementById("lastUpdate").textContent = "אין נתונים";
+}
+
+// ─────────────────────────────────────────────
+// ENERGY CHART
+// ─────────────────────────────────────────────
+function renderEnergyChart() {
+  const ctx = document.getElementById("energyChart").getContext("2d");
+  const ed = (deviceId && energyData[deviceId]) ? energyData[deviceId] : {};
+
+  // Build last 30 days
+  const labels = [], kwhs = [], costs = [], minutes = [];
+  for (let d = 29; d >= 0; d--) {
+    const ds = new Date(Date.now() - d*86400000).toLocaleDateString("sv-SE");
+    const entry = ed[ds] || {};
+    labels.push(new Date(Date.now() - d*86400000).toLocaleDateString("he-IL", {day:"numeric",month:"short"}));
+    kwhs.push(entry.kwh        != null ? +entry.kwh.toFixed(3)        : 0);
+    costs.push(entry.cost_ils  != null ? +entry.cost_ils.toFixed(2)   : 0);
+    minutes.push(entry.minutes_on || 0);
+  }
+
+  if (energyChartInst) energyChartInst.destroy();
+  energyChartInst = new Chart(ctx, {
+    type: "bar",
+    data: {
+      labels,
+      datasets: [
+        {
+          label: "kWh",
+          data: kwhs,
+          backgroundColor: "rgba(251,191,36,.7)",
+          borderColor: "#fbbf24",
+          borderWidth: 1,
+          borderRadius: 4,
+          yAxisID: "yKwh",
+        },
+        {
+          label: "עלות (₪)",
+          data: costs,
+          type: "line",
+          borderColor: "#f97316",
+          backgroundColor: "rgba(249,115,22,.1)",
+          borderWidth: 2,
+          pointRadius: 3,
+          tension: 0.3,
+          fill: true,
+          yAxisID: "yCost",
+        }
+      ]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      interaction: { mode: "index", intersect: false },
+      plugins: {
+        legend: { labels: { color: "#94a3b8", font: { family: "Heebo", size: 12 } } },
+        tooltip: {
+          backgroundColor: "#1e293b",
+          borderColor: "#1f2d45",
+          borderWidth: 1,
+          titleColor: "#e2e8f0",
+          bodyColor: "#94a3b8",
+          padding: 12,
+          callbacks: {
+            afterBody: (items) => {
+              const idx = items[0]?.dataIndex;
+              if (idx != null && minutes[idx]) return [`⏱ ${minutes[idx]} דקות פעיל`];
+              return [];
+            }
+          }
+        }
+      },
+      scales: {
+        x: { ticks: { color: "#475569", maxTicksLimit: 15, font:{size:10} }, grid: { color: "#1f2d45" } },
+        yKwh: {
+          position: "right",
+          ticks: { color: "#fbbf24", font:{size:11} },
+          grid: { color: "#1f2d45" },
+          title: { display: true, text: "kWh", color: "#fbbf24" }
+        },
+        yCost: {
+          position: "left",
+          ticks: { color: "#f97316", font:{size:11} },
+          grid: { display: false },
+          title: { display: true, text: "₪", color: "#f97316" }
+        }
+      }
+    }
+  });
+}
+
+// ─────────────────────────────────────────────
+// RENDER
+// ─────────────────────────────────────────────
+function render() {
+  if (!deviceId) return;
+  const rows = getFilteredRows();
+  if (!rows.length) { renderEmpty(); return; }
+  renderStats(rows);
+  renderMainChart(rows);
+  // Heatmap always uses last 7 days regardless of range selector
+  const week = (allData[deviceId]||[]).filter(r => new Date(r.ts).getTime() >= Date.now()-7*86400_000);
+  renderHeatmap(week);
+  renderEnergyChart();
+}
+
+// ─────────────────────────────────────────────
+// EVENTS
+// ─────────────────────────────────────────────
+document.getElementById("rangeGroup").addEventListener("click", e => {
+  const btn = e.target.closest("button");
+  if (!btn) return;
+  document.querySelectorAll("#rangeGroup button").forEach(b=>b.classList.remove("active"));
+  btn.classList.add("active");
+  rangeDays = +btn.dataset.range;
+  render();
+});
+
+document.getElementById("metricGroup").addEventListener("click", e => {
+  const btn = e.target.closest("button");
+  if (!btn) return;
+  document.querySelectorAll("#metricGroup button").forEach(b=>b.classList.remove("active"));
+  btn.classList.add("active");
+  metricMode = btn.dataset.metric;
+  render();
+});
+
+document.getElementById("deviceSelect").addEventListener("change", e => {
+  deviceId = e.target.value;
+  render();
+});
+
+// ─────────────────────────────────────────────
+// PASSWORD  (SHA-256, generated by generate_password_hash.py)
+// ─────────────────────────────────────────────
+const PASSWORD_HASH = "5bf54cacb3b651f43784af902fb09687503bee88b25b5cfdab175cf94912b7a5";
+const SESSION_KEY   = "climate_auth";
+
+async function hashPassword(pw) {
+  const salt = "sensibo-dashboard-v1";
+  const buf  = await crypto.subtle.digest(
+    "SHA-256", new TextEncoder().encode(salt + pw)
+  );
+  return Array.from(new Uint8Array(buf))
+    .map(b => b.toString(16).padStart(2, "0")).join("");
+}
+
+function checkAuth() {
+  return sessionStorage.getItem(SESSION_KEY) === "1";
+}
+
+async function unlock() {
+  const input  = document.getElementById("pwInput");
+  const errEl  = document.getElementById("lockError");
+  const hashed = await hashPassword(input.value);
+
+  if (hashed === PASSWORD_HASH) {
+    sessionStorage.setItem(SESSION_KEY, "1");
+    const screen = document.getElementById("lockScreen");
+    screen.classList.add("fade-out");
+    setTimeout(() => screen.remove(), 420);
+    loadData();
+  } else {
+    input.classList.add("error");
+    errEl.textContent = "סיסמא שגויה, נסה שוב";
+    setTimeout(() => {
+      input.classList.remove("error");
+      errEl.textContent = "";
+      input.value = "";
+      input.focus();
+    }, 900);
+  }
+}
+
+document.getElementById("unlockBtn").addEventListener("click", unlock);
+document.getElementById("pwInput").addEventListener("keydown", e => {
+  if (e.key === "Enter") unlock();
+});
+document.getElementById("togglePw").addEventListener("click", () => {
+  const inp = document.getElementById("pwInput");
+  inp.type = inp.type === "password" ? "text" : "password";
+});
+
+// אם כבר מחובר בסשן זה — טען ישירות
+if (checkAuth()) {
+  document.getElementById("lockScreen").remove();
+  loadData();
+}
+
+
+</script>
+</body>
+</html>
