@@ -62,18 +62,29 @@ def get_measurements(device_id, days_back=2):
                     "limit": limit, "offset": offset}
         )
         resp.raise_for_status()
-        items = resp.json().get("result", {}).get("measurements", [])
+        result = resp.json().get("result", {})
+        # API may return list or dict with "measurements" key
+        if isinstance(result, list):
+            items = result
+        else:
+            items = result.get("measurements", [])
+        if offset == 0:
+            print(f"  API sample (first item): {items[0] if items else 'EMPTY'}")
         if not items:
             break
         for item in items:
-            ts = _parse_ts(item["time"]["time"])
+            ts_str = _extract_ts(item)
+            if not ts_str:
+                continue
+            ts = _parse_ts(ts_str)
             if ts >= start:
                 all_items.append({
-                    "ts":          item["time"]["time"],
+                    "ts":          ts_str,
                     "temperature": item.get("temperature"),
                     "humidity":    item.get("humidity"),
                 })
-        if _parse_ts(items[-1]["time"]["time"]) < start:
+        last_ts_str = _extract_ts(items[-1])
+        if not last_ts_str or _parse_ts(last_ts_str) < start:
             break
         offset += limit
     return all_items
@@ -99,9 +110,18 @@ def get_ac_events(device_id, days_back=2):
     resp.raise_for_status()
     raw = resp.json().get("result", [])
 
+    if raw:
+        print(f"  Events API sample: {raw[0]}")
     events = []
     for ev in raw:
-        ts = _parse_ts(ev.get("ts") or ev.get("time", {}).get("time", ""))
+        ts_str = (ev.get("ts") or ev.get("time", {}).get("time")
+                  or ev.get("createdAt") or ev.get("created_at") or "")
+        if not ts_str:
+            continue
+        try:
+            ts = _parse_ts(ts_str)
+        except Exception:
+            continue
         if ts < start:
             continue
         # The AC state is nested; try common field paths
@@ -176,6 +196,16 @@ def _add_duration(result, start_ts, end_ts, power_kw, price_per_kwh, tz_offset):
 
 def _parse_ts(s):
     return datetime.fromisoformat(s.replace("Z", "+00:00"))
+
+def _extract_ts(item):
+    """Extract ISO timestamp string from various Sensibo API response shapes."""
+    t = item.get("time")
+    if isinstance(t, dict):
+        return t.get("time") or t.get("utc") or t.get("iso") or ""
+    if isinstance(t, str):
+        return t
+    # fallback fields
+    return item.get("ts") or item.get("timestamp") or item.get("createdAt") or ""
 
 def load_json(path):
     if path.exists():
