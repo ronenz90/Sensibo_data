@@ -3,8 +3,7 @@
   "price_per_kwh": 0.65,
   "default_power_kw": 2.5,
   "devices": {
-    "סלון": { "power_kw": 3.5 },
-    "חדר שינה": { "power_kw": 2.0 },
-    "משרד": { "power_kw": 2.5 }
+    "mazgan": { "power_kw": 1.42 },
+    "room mazgan": { "power_kw": 0.85 }
   }
 }
