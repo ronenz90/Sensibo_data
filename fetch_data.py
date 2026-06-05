@@ -114,6 +114,7 @@ def get_measurements(device_id, days_back=2):
             if entry:
                 print(f"  Current measurement: temp={entry['temperature']} hum={entry['humidity']}")
                 all_items.append(entry)
+
             break
     return all_items
 
@@ -244,7 +245,13 @@ def _measurement_from_pod(pod):
     ts   = _extract_ts(m)
     if temp is None or not ts:
         return None
-    return {"ts": ts, "temperature": temp, "humidity": hum}
+    return {
+        "ts":          ts,
+        "temperature": temp,
+        "humidity":    hum,
+        "feelsLike":   m.get("feelsLike"),
+        "rssi":        m.get("rssi"),
+    }
 
 def load_json(path):
     if path.exists():
