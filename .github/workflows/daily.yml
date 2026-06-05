@@ -1,0 +1,39 @@
+name: Fetch Sensibo Data
+
+on:
+  schedule:
+    # Every night at 02:00 UTC (04:00 Israel time / summer)
+    - cron: "0 2 * * *"
+  workflow_dispatch: # Allow manual trigger from GitHub UI
+
+permissions:
+  contents: write  # Needed to commit data back to the repo
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install requests
+
+      - name: Fetch data from Sensibo API
+        env:
+          SENSIBO_API_KEY: ${{ secrets.SENSIBO_API_KEY }}
+        run: python fetch_data.py
+
+      - name: Commit updated data
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/measurements.json data/energy.json
+          # Only commit if there are actual changes
+          git diff --cached --quiet || git commit -m "chore: update climate data $(date -u +%Y-%m-%d)"
+          git push
