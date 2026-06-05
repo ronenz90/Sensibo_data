@@ -53,40 +53,67 @@ def get_devices():
 # ── TEMPERATURE / HUMIDITY ────────────────────────────────
 
 def get_measurements(device_id, days_back=2):
+    """
+    Sensibo v2 returns measurements inside the pod object itself.
+    historicalMeasurements endpoint requires a paid plan on some accounts.
+    We use the pods endpoint with measurements field instead.
+    """
     start = datetime.now(timezone.utc) - timedelta(days=days_back)
-    all_items, limit, offset = [], 50, 0
-    while True:
+    all_items = []
+
+    # First try: historicalMeasurements (works on some accounts)
+    try:
         resp = requests.get(
             f"{BASE_URL}/pods/{device_id}/historicalMeasurements",
-            params={"apiKey": API_KEY, "fields": "temperature,humidity,time",
-                    "limit": limit, "offset": offset}
+            params={"apiKey": API_KEY, "fields": "temperature,humidity,time", "limit": 50}
         )
         resp.raise_for_status()
         result = resp.json().get("result", {})
-        # API may return list or dict with "measurements" key
         if isinstance(result, list):
             items = result
         else:
             items = result.get("measurements", [])
-        if offset == 0:
-            print(f"  API sample (first item): {items[0] if items else 'EMPTY'}")
-        if not items:
-            break
-        for item in items:
-            ts_str = _extract_ts(item)
-            if not ts_str:
-                continue
-            ts = _parse_ts(ts_str)
-            if ts >= start:
+        print(f"  historicalMeasurements returned {len(items)} items")
+        if items:
+            for item in items:
+                ts_str = _extract_ts(item)
+                if not ts_str:
+                    continue
+                try:
+                    ts = _parse_ts(ts_str)
+                except Exception:
+                    continue
+                if ts >= start:
+                    all_items.append({
+                        "ts":          ts_str,
+                        "temperature": item.get("temperature"),
+                        "humidity":    item.get("humidity"),
+                    })
+            if all_items:
+                return all_items
+    except Exception as e:
+        print(f"  historicalMeasurements failed: {e}")
+
+    # Fallback: current measurements from pod object
+    print("  Falling back to current measurements from pod...")
+    resp = requests.get(
+        f"{BASE_URL}/users/me/pods",
+        params={"apiKey": API_KEY, "fields": "id,measurements"}
+    )
+    resp.raise_for_status()
+    pods = resp.json().get("result", [])
+    now_str = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    for pod in pods:
+        if pod.get("id") == device_id:
+            m = pod.get("measurements", {})
+            if m and m.get("temperature") is not None:
+                print(f"  Current measurement: {m}")
                 all_items.append({
-                    "ts":          ts_str,
-                    "temperature": item.get("temperature"),
-                    "humidity":    item.get("humidity"),
+                    "ts":          now_str,
+                    "temperature": m.get("temperature"),
+                    "humidity":    m.get("humidity"),
                 })
-        last_ts_str = _extract_ts(items[-1])
-        if not last_ts_str or _parse_ts(last_ts_str) < start:
             break
-        offset += limit
     return all_items
 
 
@@ -110,12 +137,10 @@ def get_ac_events(device_id, days_back=2):
     resp.raise_for_status()
     raw = resp.json().get("result", [])
 
-    if raw:
-        print(f"  Events API sample: {raw[0]}")
     events = []
     for ev in raw:
-        ts_str = (ev.get("ts") or ev.get("time", {}).get("time")
-                  or ev.get("createdAt") or ev.get("created_at") or "")
+        # Real API: timestamp is top-level, acState is inside details{}
+        ts_str = ev.get("timestamp") or ev.get("ts") or ev.get("createdAt") or ""
         if not ts_str:
             continue
         try:
@@ -124,10 +149,11 @@ def get_ac_events(device_id, days_back=2):
             continue
         if ts < start:
             continue
-        # The AC state is nested; try common field paths
-        ac_on = ev.get("acState", {}).get("on")
+        # acState lives inside details{}
+        details = ev.get("details", {})
+        ac_on = details.get("acState", {}).get("on")
         if ac_on is None:
-            ac_on = ev.get("data", {}).get("acState", {}).get("on")
+            ac_on = ev.get("acState", {}).get("on")
         if ac_on is not None:
             events.append({"ts": ts, "on": bool(ac_on)})
 
