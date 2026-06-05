@@ -648,7 +648,7 @@ function renderMainChart(rows) {
   // showFeels defined below
 
   const datasets = [];
-  const showFeels = metricMode === "feels";
+  const showFeels = metricMode === "both" || metricMode === "feels";
   if (showFeels) datasets.push({
     label: "תחושת טמפ׳ (°C)",
     data: displayRows.map(r => r.feelsLike),
