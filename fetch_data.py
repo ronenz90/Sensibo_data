@@ -101,8 +101,47 @@ def get_measurements(device_id, days_back=2):
     except Exception as e:
         print(f"  historicalMeasurements failed: {e}")
 
-    # Fallback: current measurement from pod object (saves 1 point per run)
-    print("  Falling back to current measurement from pod...")
+    # Fallback: try fetching recent measurements via different param style
+    print("  Trying measurements with days param...")
+    try:
+        resp = requests.get(
+            f"{BASE_URL}/pods/{device_id}/historicalMeasurements",
+            params={"apiKey": API_KEY, "fields": "temperature,humidity,feelsLike,rssi,time",
+                    "days": 1}
+        )
+        resp.raise_for_status()
+        result = resp.json().get("result", {})
+        if isinstance(result, list):
+            items = result
+        elif isinstance(result, dict):
+            items = result.get("measurements", [])
+        else:
+            items = []
+        print(f"  days=1 returned {len(items)} items")
+        for item in items:
+            ts_str = _extract_ts(item)
+            if not ts_str:
+                continue
+            try:
+                ts = _parse_ts(ts_str)
+            except Exception:
+                continue
+            if ts >= start:
+                all_items.append({
+                    "ts":          ts_str,
+                    "temperature": item.get("temperature"),
+                    "humidity":    item.get("humidity"),
+                    "feelsLike":   item.get("feelsLike"),
+                    "rssi":        item.get("rssi"),
+                })
+        if all_items:
+            print(f"  Got {len(all_items)} measurements.")
+            return all_items
+    except Exception as e:
+        print(f"  days param failed: {e}")
+
+    # Last resort: current measurement only from pod object
+    print("  Last resort: current measurement from pod...")
     resp = requests.get(
         f"{BASE_URL}/users/me/pods",
         params={"apiKey": API_KEY, "fields": "id,measurements"}
@@ -114,7 +153,6 @@ def get_measurements(device_id, days_back=2):
             if entry:
                 print(f"  Current measurement: temp={entry['temperature']} hum={entry['humidity']}")
                 all_items.append(entry)
-
             break
     return all_items
 
